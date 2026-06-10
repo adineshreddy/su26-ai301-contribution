@@ -11,7 +11,7 @@
 
 I chose issue #2761 in the OSCAR EMR project because it is a clearly scoped security bug labeled `good first issue`, `help wanted`, and `security`. The problem is specific and easy to state: four methods in `PreventionWs.java` (`getPrevention`, `getUpdatedAfterDate`, `getByDemographicIdUpdatedAfterDate`, and `getPreventionsByProgramProviderDemographicDate`) call `getLoggedInInfo()` but never verify that the authenticated consumer actually has read access to prevention/immunization data. As a result, any authenticated user — including one with a revoked or compromised OAuth token — can retrieve sensitive patient health information (PHI). "Fixed" means each of these methods performs a `_prevention` read privilege check and rejects unauthorized callers before returning any data.
 
-This issue matches what I can realistically learn and ship in this cycle. The codebase is Java/SOAP, which I'm newer to, but the change is small and pattern-based rather than requiring deep system knowledge — and the issue points to #2471, the identical flaw already fixed in `AllergyWs`, which gives me a working reference for the exact privilege-check pattern to apply. I want to learn how authorization is enforced in a real production healthcare system, and adding a `securityInfoManager.hasPrivilege(...)` gate is a focused way to see how privilege checks guard sensitive endpoints.
+This issue matches what I can realistically learn and ship in this cycle. The codebase is Java/SOAP, which I'm newer to, but the change is small and pattern-based rather than requiring deep system knowledge — `PreventionManagerImpl` already guards some of its methods with the exact privilege check I'll need, so I have a working in-file reference for the pattern to apply. I want to learn how authorization is enforced in a real production healthcare system, and adding a `securityInfoManager.hasPrivilege(...)` gate is a focused way to see how privilege checks guard sensitive endpoints.
 
 ---
 
@@ -32,9 +32,9 @@ The methods call `getLoggedInInfo()` and delegate straight to the manager withou
 ### Affected Components
 
 - `PreventionWs.java` — the four methods: `getPrevention`, `getUpdatedAfterDate`, `getByDemographicIdUpdatedAfterDate`, `getPreventionsByProgramProviderDemographicDate`
-- `PreventionManagerImpl` (two methods here already perform the check correctly — a reference)
+- `PreventionManagerImpl` — two methods here (`getPreventionsByDemographicNo`, `getPreventionDTOs`) already perform the check correctly and serve as the reference pattern
 - `securityInfoManager` / privilege-checking infrastructure
-- Reference fix: `AllergyWs` (issue #2471)
+- Related: `AllergyWs` has the same flaw (issue #2471, still open)
 
 ---
 
@@ -64,11 +64,11 @@ _(To be completed in Phase II.)_
 
 ### Proposed Solution
 
-The likely fix is to add a privilege check at the start of each affected method, mirroring the already-fixed `AllergyWs` (#2471) and the two correct methods in `PreventionManagerImpl`:
+The likely fix is to add a privilege check at the start of each affected method, mirroring the two methods in `PreventionManagerImpl` that already do it correctly:
 
 ```java
-if (!securityInfoManager.hasPrivilege(loggedInInfo, "_prevention", "r", null)) {
-    throw new SecurityException("missing required sec object");
+if (!securityInfoManager.hasPrivilege(loggedInInfo, "_prevention", SecurityInfoManager.READ, demographicNo)) {
+    throw new SecurityException("missing required sec object (_prevention)");
 }
 ```
 
@@ -78,7 +78,7 @@ Using UMPIRE framework (adapted):
 
 **Understand:** Four `PreventionWs` methods expose PHI without verifying the caller's `_prevention` read privilege.
 
-**Match:** `AllergyWs` (#2471) and two methods in `PreventionManagerImpl` already implement the correct `hasPrivilege` pattern.
+**Match:** Two methods in `PreventionManagerImpl` (`getPreventionsByDemographicNo`, `getPreventionDTOs`) already implement the correct `hasPrivilege` pattern. (`AllergyWs` has the same unfixed flaw in #2471.)
 
 **Plan:**
 1. Add the `_prevention` read privilege check to `getPrevention`.
@@ -158,4 +158,4 @@ _(To be completed.)_
 ## Resources Used
 
 - [Issue #2761](https://github.com/carlos-emr/carlos/issues/2761)
-- [Issue #2471 — the reference fix in AllergyWs](https://github.com/carlos-emr/carlos/issues/2471)
+- [Issue #2471 — the same flaw in AllergyWs (related, still open)](https://github.com/carlos-emr/carlos/issues/2471)
